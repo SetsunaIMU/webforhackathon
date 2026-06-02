@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PharmaTrack Pro - ระบบติดตามและควบคุมอุณหภูมิขนส่งยามาตรฐาน GDP</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js for beautiful graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet.js Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Sarabun', sans-serif;
+        }
+        .pulse-red {
+            animation: pulse-red-anim 1.5s infinite;
+        }
+        @keyframes pulse-red-anim {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            50% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+        }
+        /* Custom Spin for IoT Fan */
+        .spin-slow {
+            animation: spin 3s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Header / Navigation -->
+    <header class="bg-slate-950 border-b border-slate-800 text-white shadow-lg sticky top-0 z-[1000]">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="bg-blue-600 p-2 rounded-xl text-white">
+                    <i data-lucide="shield-alert" class="w-7 h-7"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-wider flex items-center gap-2">
+                        PharmaTrack <span class="bg-emerald-500/10 text-emerald-400 text-[10px] px-2 py-0.5 rounded border border-emerald-500/30 font-mono">PRO V2.0</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">ระบบมอนิเตอร์และควบคุมความเย็นอัตโนมัติตามเกณฑ์ GDP</p>
+                </div>
+            </div>
+            
+            <!-- Connection & Diagnostic Status -->
+            <div class="flex items-center space-x-3">
+                <!-- Device Battery status -->
+                <div class="hidden sm:flex items-center space-x-1.5 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-xl text-xs text-slate-300">
+                    <i data-lucide="battery-charging" class="w-4 h-4 text-emerald-400 animate-pulse"></i>
+                    <span id="gateway-battery">แบตเตอรี่เกตเวย์: 94%</span>
+                </div>
+                <!-- API Connection status -->
+                <div id="factory-api-status" class="flex items-center space-x-2 bg-emerald-950/80 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span class="font-semibold text-emerald-300" id="status-text">Factory Sensor API Connected</span>
+                </div>
+                <button onclick="toggleSensorConfig()" class="bg-slate-800 hover:bg-slate-700 p-2.5 rounded-xl text-slate-300 transition-colors border border-slate-700" title="ตั้งค่าระบบเครือข่าย">
+                    <i data-lucide="settings-2" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow container mx-auto px-4 py-6 max-w-7xl">
+
+        <!-- API & Sensor Connection Config Panel (Collapsible) -->
+        <section id="sensor-config-section" class="hidden mb-6 bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-xl transition-all">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+                    <i data-lucide="network" class="text-blue-500"></i> โครงสร้างการเชื่อมต่อเซนเซอร์และระบบเตือน (Modbus RTU / REST Integration)
+                </h2>
+                <button onclick="toggleSensorConfig()" class="text-slate-400 hover:text-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">FACTORY REST GATEWAY</label>
+                    <input type="text" id="api-endpoint" value="https://api.coldchain-factory.net/v2/live" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-sm text-slate-200 focus:ring-1 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">LINE NOTIFY API TOKEN</label>
+                    <input type="password" id="line-token" value="LN-MOCK-TOKEN-998x4" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-sm text-slate-200 focus:ring-1 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">ความแรงสัญญาณซิม (4G/5G)</label>
+                    <div class="flex items-center gap-2 py-2 text-slate-300 text-sm font-semibold">
+                        <i data-lucide="signal" class="w-5 h-5 text-emerald-400"></i>
+                        <span>ดีเยี่ยม (-64 dBm)</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">ความเร็วข้อมูล (Polling Delay)</label>
+                    <select id="update-interval" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-sm text-slate-200 focus:ring-1 focus:ring-blue-500" onchange="changeInterval()">
+                        <option value="2000">ทุกๆ 2 วินาที (เรียลไทม์สูงสุด)</option>
+                        <option value="5000" selected>ทุกๆ 5 วินาที (สแตนดาร์ด)</option>
+                        <option value="15000">ทุกๆ 15 วินาที (ประหยัดพลังงาน)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-4 flex justify-end gap-2 border-t border-slate-800 pt-3">
+                <button onclick="testConnection()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 text-xs font-semibold transition-colors">
+                    ทดสอบการ Ping บอร์ดเซนเซอร์
+                </button>
+                <button onclick="saveSensorConfig()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-xs font-semibold transition-all">
+                    บันทึกการซิงโครไนซ์
+                </button>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Left Panel: Input & Queue -->
+            <div class="lg:col-span-4 space-y-6">
+                
+                <!-- Step 1: Shipment Registration Card -->
+                <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-lg">
+                    <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                        <span class="bg-blue-900 text-blue-300 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span>
+                        ขึ้นทะเบียนและระบุเวชภัณฑ์
+                    </h2>
+                    
+                    <form id="shipment-form" onsubmit="registerShipment(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">รหัสบาร์โค้ดสติกเกอร์ (GS1 Barcode)</label>
+                            <div class="relative">
+                                <input type="text" id="barcode-id" required placeholder="เช่น GS1-72983-TH" class="w-full bg-slate-900 border border-slate-700 pl-9 pr-12 py-2 rounded-xl focus:ring-1 focus:ring-blue-500 font-mono text-sm text-slate-100">
+                                <i data-lucide="barcode" class="absolute left-3 top-2.5 text-slate-500 w-4 h-4"></i>
+                                <button type="button" onclick="simulateBarcodeScan()" class="absolute right-2 top-1.5 p-1 bg-slate-800 hover:bg-blue-900 border border-slate-700 text-slate-300 rounded-lg transition-colors" title="สแกนผ่านพอร์ตเครื่องสแกน">
+                                    <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">ชื่อสามัญทางยา (Generic Drug Name)</label>
+                            <input type="text" id="drug-name" required placeholder="เช่น ยาเคมีบำบัด / ฮอร์โมนเจริญเติบโต" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-xl text-sm text-slate-100 focus:ring-1 focus:ring-blue-500">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">เกณฑ์อุณหภูมิควบคุม</label>
+                                <select id="temp-range" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-xl text-xs text-slate-200 focus:ring-1 focus:ring-blue-500" onchange="updateTempLimits()">
+                                    <option value="2-8">2°C ถึง 8°C (วัคซีนความเย็นสูง)</option>
+                                    <option value="15-25">15°C ถึง 25°C (อุณหภูมิห้องควบคุม)</option>
+                                    <option value="-20-0">-20°C ถึง 0°C (แช่แข็งพิเศษ)</option>
+                                    <option value="custom">กำหนดช่วงอุณหภูมิเอง...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">เป้าหมายความชื้นสูงสุด</label>
+                                <select id="humidity-range" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-xl text-xs text-slate-200 focus:ring-1 focus:ring-blue-500">
+                                    <option value="35-60">35% - 60% RH</option>
+                                    <option value="below-50">น้อยกว่า 50% RH</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Custom Temp Fields -->
+                        <div id="custom-temp-fields" class="hidden grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-lg border border-slate-800">
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">ต่ำสุด (°C)</label>
+                                <input type="number" id="custom-min-temp" value="2" step="0.1" class="w-full bg-slate-800 border border-slate-700 px-2 py-1 rounded text-xs text-slate-100">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-semibold text-slate-400 mb-1">สูงสุด (°C)</label>
+                                <input type="number" id="custom-max-temp" value="8" step="0.1" class="w-full bg-slate-800 border border-slate-700 px-2 py-1 rounded text-xs text-slate-100">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">เป้าหมายปลายทาง (ปลายทางจริงบนแผนที่)</label>
+                            <select id="destination" class="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-xl text-xs text-slate-200 focus:ring-1 focus:ring-blue-500">
+                                <option value="รพ.จุฬาลงกรณ์ สภากาชาดไทย">รพ.จุฬาลงกรณ์ (กรุงเทพฯ)</option>
+                                <option value="รพ.ศิริราช (คลังยาใหญ่)">รพ.ศิริราช (ศิริราช)</option>
+                                <option value="รพ.ภูมิพลอดุลยเดช (คลังวัคซีน)">รพ.ภูมิพลอดุลยเดช (สายไหม)</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded-xl shadow-lg shadow-blue-500/20 transition-all text-sm flex items-center justify-center gap-1.5">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                            ขึ้นทะเบียนพัสดุและวิเคราะห์
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Shipment List (Active DB Queue) -->
+                <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-lg">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xs font-bold text-slate-400 tracking-wide uppercase">ตู้คอนเทนเนอร์ที่อยู่ระหว่างทาง (Active Queue)</h3>
+                        <span class="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] px-2 py-0.5 rounded-full font-bold font-mono" id="queue-count">3 ITEMS</span>
+                    </div>
+                    <div class="space-y-3 max-h-[220px] overflow-y-auto pr-1" id="shipment-list-container">
+                        <!-- Generates via JS -->
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right Panel: Tracking & IoT Realtime Dashboard -->
+            <div class="lg:col-span-8 space-y-6">
+                
+                <!-- Main Track Header Status -->
+                <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-lg">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                    ตู้ควบคุมระบบเย็นอัจฉริยะ No.04
+                                </span>
+                                <span class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+                                    <i data-lucide="wifi" class="w-3 h-3 text-emerald-400 animate-pulse"></i> REST API Polling
+                                </span>
+                            </div>
+                            <h2 class="text-xl font-bold text-slate-100 mt-2" id="display-drug-name">วัคซีนมะเร็งปากมดลูก (HPV Vaccine)</h2>
+                            <p class="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-y-1 gap-x-3">
+                                <span class="flex items-center gap-1 font-mono"><i data-lucide="barcode" class="w-3.5 h-3.5 text-slate-500"></i> บาร์โค้ด: <span class="font-bold text-slate-300" id="display-barcode">PM-90422-TH</span></span>
+                                <span class="text-slate-800">|</span>
+                                <span class="flex items-center gap-1"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-slate-500"></i> สิ้นสุดคลังยา: <span class="text-slate-300" id="display-destination">รพ.จุฬาลงกรณ์</span></span>
+                            </p>
+                        </div>
+                        
+                        <!-- Control panel tools -->
+                        <div class="flex items-center gap-2">
+                            <button onclick="exportCSV()" class="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors" title="ส่งออก CSV สำหรับรายงานการแพทย์">
+                                <i data-lucide="download-cloud" class="w-4 h-4"></i> ส่งออกข้อมูล (CSV)
+                            </button>
+                            <button onclick="simulateLineAlert()" class="bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/30 text-emerald-300 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors" title="จำลองส่ง Alert สู่ Line Notify">
+                                <i data-lucide="bell-ring" class="w-4 h-4 text-emerald-400 animate-bounce"></i> จำลอง LINE Alert
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Temperature & Humidity Gauge Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        
+                        <!-- Temperature Card -->
+                        <div class="bg-slate-900 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-400">อุณหภูมิภายในคอนเทนเนอร์ (Live)</p>
+                                    <span class="text-[10px] text-slate-500">ช่วงความคลาดเคลื่อนทางเวชภัณฑ์ ±0.1°C</span>
+                                </div>
+                                <div class="p-2 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-400" id="temp-icon-bg">
+                                    <i data-lucide="thermometer" class="w-5 h-5"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="my-4 flex items-baseline gap-2">
+                                <span class="text-4xl font-extrabold tracking-tight text-white" id="live-temp">5.2</span>
+                                <span class="text-xl font-bold text-slate-500">°C</span>
+                                <span class="text-xs font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded ml-2 border border-slate-700" id="display-target-range">2.0 - 8.0°C</span>
+                            </div>
+
+                            <div class="flex items-center justify-between text-[11px] font-semibold border-t border-slate-800 pt-3">
+                                <span class="text-slate-400 flex items-center gap-1">
+                                    <i data-lucide="gauge" class="w-3.5 h-3.5 text-slate-500"></i> จำลองปรับอุณหภูมิสิ่งแวดล้อม:
+                                </span>
+                                <div class="flex gap-1">
+                                    <button onclick="adjustSimulatedSensor('temp', -1)" class="px-2 py-1 bg-slate-800 border border-slate-700 text-blue-400 hover:bg-slate-700 rounded-lg text-[10px] transition-colors">-1.0°</button>
+                                    <button onclick="adjustSimulatedSensor('temp', 1)" class="px-2 py-1 bg-slate-800 border border-slate-700 text-rose-400 hover:bg-slate-700 rounded-lg text-[10px] transition-colors">+1.0°</button>
+                                </div>
+                            </div>
+
+                            <!-- Alert Box -->
+                            <div id="temp-alert-status" class="mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+                                <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+                                <span>อุณหภูมิปกติ ปลอดภัยสำหรับการจัดส่ง</span>
+                            </div>
+                        </div>
+
+                        <!-- Humidity Card -->
+                        <div class="bg-slate-900 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-400">ความชื้นในตู้ยา (RH Sensor)</p>
+                                    <span class="text-[10px] text-slate-500">ความชื้นเป้าหมายสำหรับยาเม็ด/ผง</span>
+                                </div>
+                                <div class="p-2 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sky-400">
+                                    <i data-lucide="droplet" class="w-5 h-5"></i>
+                                </div>
+                            </div>
+
+                            <div class="my-4 flex items-baseline gap-2">
+                                <span class="text-4xl font-extrabold tracking-tight text-white" id="live-humidity">45</span>
+                                <span class="text-xl font-bold text-slate-500">% RH</span>
+                                <span class="text-xs font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded ml-2 border border-slate-700">35 - 60%</span>
+                            </div>
+
+                            <div class="flex items-center justify-between text-[11px] font-semibold border-t border-slate-800 pt-3">
+                                <span class="text-slate-400 flex items-center gap-1">
+                                    <i data-lucide="gauge" class="w-3.5 h-3.5 text-slate-500"></i> จำลองความชื้นแวดล้อม:
+                                </span>
+                                <div class="flex gap-1">
+                                    <button onclick="adjustSimulatedSensor('humidity', -5)" class="px-2 py-1 bg-slate-800 border border-slate-700 text-blue-400 hover:bg-slate-700 rounded-lg text-[10px] transition-colors">-5%</button>
+                                    <button onclick="adjustSimulatedSensor('humidity', 5)" class="px-2 py-1 bg-slate-800 border border-slate-700 text-rose-400 hover:bg-slate-700 rounded-lg text-[10px] transition-colors">+5%</button>
+                                </div>
+                            </div>
+
+                            <!-- Alert Box -->
+                            <div id="humidity-alert-status" class="mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+                                <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+                                <span>ความชื้นอยู่ในระดับที่เหมาะสม</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Climate Control Status -->
+                <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-lg">
+                    <h3 class="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2">
+                        <i data-lucide="cpu" class="text-blue-500"></i> 
+                        สถานะเครื่องควบคุมการประมวลผล (Automated Environmental Controller)
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        
+                        <!-- Cooler Unit Active Status -->
+                        <div class="border border-slate-800 rounded-xl p-4 flex items-center gap-3 bg-slate-900" id="cooler-unit-card">
+                            <div class="p-2 rounded-lg bg-slate-800 text-slate-400" id="cooler-icon-container">
+                                <i data-lucide="wind" class="w-5 h-5" id="cooler-icon"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-semibold text-slate-400">คอมเพรสเซอร์ความเย็น (Cooler)</h4>
+                                <p class="text-xs font-bold text-slate-500" id="cooler-status-text">Standby</p>
+                            </div>
+                        </div>
+
+                        <!-- Heater Unit Active Status -->
+                        <div class="border border-slate-800 rounded-xl p-4 flex items-center gap-3 bg-slate-900" id="heater-unit-card">
+                            <div class="p-2 rounded-lg bg-slate-800 text-slate-400" id="heater-icon-container">
+                                <i data-lucide="sun" class="w-5 h-5" id="heater-icon"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-semibold text-slate-400">ระบบคอยล์ฮีตเตอร์ทำความร้อน</h4>
+                                <p class="text-xs font-bold text-slate-500" id="heater-status-text">Standby</p>
+                            </div>
+                        </div>
+
+                        <!-- Dehumidifier Unit Active Status -->
+                        <div class="border border-slate-800 rounded-xl p-4 flex items-center gap-3 bg-slate-900" id="dehumidifier-unit-card">
+                            <div class="p-2 rounded-lg bg-slate-800 text-slate-400" id="dehumidifier-icon-container">
+                                <i data-lucide="cloud-rain" class="w-5 h-5" id="dehumidifier-icon"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-semibold text-slate-400">ระบบไล่ความชื้น (Dehumidifier)</h4>
+                                <p class="text-xs font-bold text-slate-500" id="dehumidifier-status-text">Standby</p>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Factory Control Log Logbook -->
+                    <div class="mt-4 bg-black/50 text-emerald-400 p-4 rounded-xl font-mono text-[11px] h-32 overflow-y-auto space-y-1 border border-slate-800" id="system-logs">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <!-- Real Maps & Historical graph -->
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+                    
+                    <!-- Real Leaflet Map -->
+                    <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 shadow-lg md:col-span-7 flex flex-col">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                <i data-lucide="map" class="text-blue-500"></i> เส้นทางจริงตามเวลาพิกัด (Real GPS Tracking)
+                            </h3>
+                            <span class="text-[10px] text-slate-500" id="current-coords">13.7563° N, 100.5018° E</span>
+                        </div>
+                        <!-- Leaflet map container -->
+                        <div id="leaflet-map" class="bg-slate-900 rounded-xl h-60 border border-slate-800 relative z-10"></div>
+                    </div>
+
+                    <!-- Telemetry Line Graph -->
+                    <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 shadow-lg md:col-span-5 flex flex-col justify-between">
+                        <h3 class="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
+                            <i data-lucide="trending-up" class="text-blue-500"></i> เส้นกราฟการรักษาระดับความเย็น (5M Graph)
+                        </h3>
+                        <div class="h-60 flex items-center justify-center">
+                            <canvas id="tempChart" class="w-full h-full"></canvas>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-950 border-t border-slate-800 text-slate-400 py-6 mt-12 text-xs">
+        <div class="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <p class="font-bold text-slate-200 flex items-center gap-1.5">
+                    <i data-lucide="check-square" class="text-emerald-400 w-4 h-4"></i> 
+                    ความปลอดภัยระบบสตรีมมิ่ง PharmaTrack IoT ภายใต้เกณฑ์มาตรฐานองค์การอนามัยโลก (WHO Cold Chain Protocol)
+                </p>
+                <p class="text-[10px] text-slate-500 mt-1">ใบรับรองไอโอทีและระบบฐานข้อมูลความปลอดภัยการแพทย์ทางไกล © 2026</p>
+            </div>
+            <div class="flex gap-4">
+                <a href="#" class="hover:text-white">API References</a>
+                <span class="text-slate-800">|</span>
+                <a href="#" class="hover:text-white">Line Integration</a>
+                <span class="text-slate-800">|</span>
+                <a href="#" class="hover:text-white">คู่มือเซนเซอร์โรงงาน</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts to control live application, maps and charts -->
+    <script>
+        // --- Simulated Database / Active Shipments with Geographic Waypoints in Bangkok ---
+        let shipments = [
+            { 
+                id: "PM-90422-TH", 
+                name: "วัคซีนมะเร็งปากมดลูก (HPV)", 
+                minTemp: 2.0, 
+                maxTemp: 8.0, 
+                minHum: 35, 
+                maxHum: 60, 
+                destination: "รพ.จุฬาลงกรณ์ สภากาชาดไทย", 
+                currentTemp: 5.2, 
+                currentHum: 45.8,
+                // Waypoints: Factory in Samut Prakan to Chulalongkorn Hospital, BKK
+                coordsPath: [
+                    [13.6288, 100.6125], // Factory Gate Samut Prakan
+                    [13.6700, 100.6050], // Bangna-Trat Highway
+                    [13.7000, 100.5600], // Rama IV Rd ExpressWay
+                    [13.7250, 100.5400], // Silom Crossing
+                    [13.7317, 100.5348]  // Chulalongkorn Hospital BKK
+                ]
+            },
+            { 
+                id: "PM-88211-TH", 
+                name: "ยาละลายลิ่มเลือด (Heparin)", 
+                minTemp: 15.0, 
+                maxTemp: 25.0, 
+                minHum: 30, 
+                maxHum: 50, 
+                destination: "รพ.ศิริราช (คลังยาใหญ่)", 
+                currentTemp: 19.5, 
+                currentHum: 42.1,
+                // Waypoints: Factory to Siriraj Hospital
+                coordsPath: [
+                    [13.6288, 100.6125], // Factory Gate
+                    [13.6800, 100.5200], // Suksawat Rd
+                    [13.7200, 100.4900], // Wongwian Yai
+                    [13.7450, 100.4850], // Arun Amarin Rd
+                    [13.7538, 100.4852]  // Siriraj Hospital
+                ]
+            },
+            { 
+                id: "PM-31415-TH", 
+                name: "อินซูลินสำเร็จรูปชนิดหลอด", 
+                minTemp: 2.0, 
+                maxTemp: 8.0, 
+                minHum: 35, 
+                maxHum: 60, 
+                destination: "รพ.ภูมิพลอดุลยเดช (คลังวัคซีน)", 
+                currentTemp: 4.8, 
+                currentHum: 48.2,
+                // Waypoints: Factory to Bhumibol Adulyadej Hospital
+                coordsPath: [
+                    [13.6288, 100.6125], // Factory
+                    [13.7300, 100.6300], // Srinagarindra Rd
+                    [13.8000, 100.6500], // Ramindra Expressway
+                    [13.8700, 100.6300], // Sai Mai Rd
+                    [13.9042, 100.6186]  // Bhumibol Adulyadej Hospital
+                ]
+            }
+        ];
+
+        let activeShipmentIndex = 0; 
+        let simulatedTemp = 5.2;
+        let simulatedHumidity = 45.8;
+        let apiIntervalId = null;
+        let chart = null;
+        let leafletMap = null;
+        let truckMarker = null;
+        let routePolyline = null;
+        let currentWaypointIndex = 0;
+        let stepProgress = 0.0; // progress between waypoints
+
+        // Simulated Battery and Network logs
+        let batteryLevel = 94;
+        let simulatedHistory = []; // stores temperature for exports
+
+        // Automated Climate System status
+        let coolerActive = false;
+        let heaterActive = false;
+        let dehumidifierActive = false;
+
+        window.onload = function () {
+            // Initialize Lucide Icons
+            lucide.createIcons();
+            
+            // Build Graph
+            initChart();
+
+            // Build Leaflet Map
+            initMap();
+
+            // Load initial shipment
+            selectShipment(0);
+
+            // Start IoT Engine Telemetry System
+            startIoTEngine();
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['4m ago', '3m ago', '2m ago', '1m ago', '30s ago', 'Just now'],
+                    datasets: [{
+                        label: 'เซนเซอร์ (°C)',
+                        data: [4.8, 5.0, 5.5, 5.1, 5.3, 5.2],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#94a3b8', font: { family: 'Sarabun', size: 10 } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8', font: { family: 'Sarabun', size: 9 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function initMap() {
+            // Center around Bangkok initially
+            leafletMap = L.map('leaflet-map', {
+                attributionControl: false,
+                zoomControl: false
+            }).setView([13.7563, 100.5018], 11);
+
+            // Dark style tile layer (perfect fit for our dark dashboard)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 20
+            }).addTo(leafletMap);
+
+            // Create custom animated pulse truck icon using SVG divIcon
+            const customTruckIcon = L.divIcon({
+                html: `
+                    <div style="background-color:#2563eb; color:white; padding:8px; border-radius:50%; border:2px solid white; box-shadow: 0 0 10px rgba(59, 130, 246, 0.7);" class="pulse-red">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
+                            <path d="M19 18h2a1 1 0 0 0 1-1v-4.24a1 1 0 0 0-.293-.707l-3.535-3.536A1 1 0 0 0 15.465 8H12"/>
+                            <circle cx="7.5" cy="18.5" r="2.5"/>
+                            <circle cx="16.5" cy="18.5" r="2.5"/>
+                        </svg>
+                    </div>`,
+                className: 'custom-truck-marker',
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+            });
+
+            truckMarker = L.marker([13.6288, 100.6125], { icon: customTruckIcon }).addTo(leafletMap);
+        }
+
+        function toggleSensorConfig() {
+            const panel = document.getElementById('sensor-config-section');
+            panel.classList.toggle('hidden');
+        }
+
+        function changeInterval() {
+            startIoTEngine();
+            writeLog(`[ระบบเครือข่าย] เปลี่ยนอัตราการดึงพิกัดเซนเซอร์ใหม่`);
+        }
+
+        function saveSensorConfig() {
+            const endpoint = document.getElementById('api-endpoint').value;
+            writeLog(`[เครือข่าย] เชื่อมต่อ Modbus RTU ผ่าน ${endpoint} สมบูรณ์`);
+            toggleSensorConfig();
+        }
+
+        function testConnection() {
+            const statusBox = document.getElementById('factory-api-status');
+            const statusText = document.getElementById('status-text');
+            writeLog(`[จำลอง] กำลังตรวจสอบสถานะสายส่งและ Handshake...`);
+            statusText.innerText = "กำลังทดสอบปิงเซนเซอร์...";
+            statusBox.className = "flex items-center space-x-2 bg-yellow-950 border border-yellow-500/30 px-3 py-1.5 rounded-xl text-xs";
+            
+            setTimeout(() => {
+                statusText.innerText = "REST API Connected";
+                statusBox.className = "flex items-center space-x-2 bg-emerald-950/80 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs";
+                writeLog(`[ปิง] สำเร็จ! Gateway โรงงานตอบสนองภายใน 18ms`);
+            }, 1000);
+        }
+
+        function updateTempLimits() {
+            const val = document.getElementById('temp-range').value;
+            const customDiv = document.getElementById('custom-temp-fields');
+            if (val === 'custom') {
+                customDiv.classList.remove('hidden');
+            } else {
+                customDiv.classList.add('hidden');
+            }
+        }
+
+        function simulateBarcodeScan() {
+            const randomCode = "GS1-" + Math.floor(Math.random() * 90000 + 10000) + "-TH";
+            document.getElementById('barcode-id').value = randomCode;
+            writeLog(`[สแกนเนอร์] ตรวจพบรหัสบาร์โค้ดสติกเกอร์ยา: ${randomCode}`);
+        }
+
+        function registerShipment(event) {
+            event.preventDefault();
+
+            const barcode = document.getElementById('barcode-id').value;
+            const name = document.getElementById('drug-name').value;
+            const dest = document.getElementById('destination').value;
+            const tempVal = document.getElementById('temp-range').value;
+            const humVal = document.getElementById('humidity-range').value;
+
+            let minT = 2.0, maxT = 8.0;
+            let minH = 35, maxH = 60;
+
+            if (tempVal === '2-8') { minT = 2.0; maxT = 8.0; }
+            else if (tempVal === '15-25') { minT = 15.0; maxT = 25.0; }
+            else if (tempVal === '-20-0') { minT = -20.0; maxT = 0.0; }
+            else if (tempVal === 'custom') {
+                minT = parseFloat(document.getElementById('custom-min-temp').value) || 0;
+                maxT = parseFloat(document.getElementById('custom-max-temp').value) || 100;
+            }
+
+            if (humVal === '35-60') { minH = 35; maxH = 60; }
+            else if (humVal === 'below-50') { minH = 10; maxH = 50; }
+
+            // Clone default waypoint route or offset path slightly for a new shipment
+            const pathOffset = shipments.length * 0.005;
+            const customCoords = [
+                [13.6288, 100.6125],
+                [13.6700, 100.6050 + pathOffset],
+                [13.7100 + pathOffset, 100.5500],
+                [13.7317, 100.5348]
+            ];
+
+            const newShipment = {
+                id: barcode,
+                name: name,
+                minTemp: minT,
+                maxTemp: maxT,
+                minHum: minH,
+                maxHum: maxH,
+                destination: dest,
+                currentTemp: (minT + maxT) / 2,
+                currentHumidity: (minH + maxH) / 2,
+                coordsPath: customCoords
+            };
+
+            shipments.unshift(newShipment);
+            selectShipment(0);
+
+            document.getElementById('barcode-id').value = '';
+            document.getElementById('drug-name').value = '';
+
+            writeLog(`[ขึ้นทะเบียนคลัง] อัปโหลดโปรโตคอลขนส่งเวชภัณฑ์ ${name} สู่ระบบเรียบร้อย`);
+        }
+
+        function selectShipment(index) {
+            if(index >= shipments.length) return;
+            
+            activeShipmentIndex = index;
+            const target = shipments[index];
+
+            simulatedTemp = target.currentTemp || ((target.minTemp + target.maxTemp) / 2);
+            simulatedHumidity = target.currentHumidity || 48.0;
+            currentWaypointIndex = 0;
+            stepProgress = 0.0;
+
+            // Update UI elements
+            document.getElementById('display-drug-name').innerText = target.name;
+            document.getElementById('display-barcode').innerText = target.id;
+            document.getElementById('display-destination').innerText = target.destination;
+            document.getElementById('display-target-range').innerText = `${target.minTemp.toFixed(1)}°C - ${target.maxTemp.toFixed(1)}°C`;
+
+            // Clear old route lines and draw new ones
+            if (routePolyline) {
+                leafletMap.removeLayer(routePolyline);
+            }
+            routePolyline = L.polyline(target.coordsPath, { color: '#3b82f6', weight: 4, opacity: 0.8 }).addTo(leafletMap);
+            
+            // Adjust map view
+            leafletMap.fitBounds(routePolyline.getBounds(), { padding: [30, 30] });
+
+            renderShipmentQueue();
+            writeLog(`[เปลี่ยนตู้] กำลังดึงสัญญาณข้อมูลขนส่งตู้: ${target.name} [${target.id}]`);
+
+            if (chart) {
+                chart.options.scales.y.min = target.minTemp - 3;
+                chart.options.scales.y.max = target.maxTemp + 3;
+                chart.update();
+            }
+        }
+
+        function renderShipmentQueue() {
+            const container = document.getElementById('shipment-list-container');
+            document.getElementById('queue-count').innerText = `${shipments.length} ITEMS`;
+            
+            container.innerHTML = '';
+            shipments.forEach((ship, index) => {
+                const isActive = (index === activeShipmentIndex);
+                const activeClasses = isActive 
+                    ? 'border-blue-500 bg-slate-800/80' 
+                    : 'border-slate-800 hover:border-slate-700 bg-slate-900/40';
+
+                const safeTempClass = (ship.currentTemp >= ship.minTemp && ship.currentTemp <= ship.maxTemp)
+                    ? 'text-emerald-400 font-semibold'
+                    : 'text-rose-500 font-extrabold animate-pulse';
+
+                container.innerHTML += `
+                    <div onclick="selectShipment(${index})" class="p-3 border rounded-xl cursor-pointer transition-all flex items-center justify-between ${activeClasses}">
+                        <div class="flex-1 min-w-0 pr-2">
+                            <h4 class="text-xs font-bold text-slate-200 truncate">${ship.name}</h4>
+                            <span class="font-mono text-[10px] text-slate-500">${ship.id}</span>
+                        </div>
+                        <div class="text-right flex-shrink-0">
+                            <p class="text-xs ${safeTempClass}">${ship.currentTemp ? ship.currentTemp.toFixed(1) : '--'}°C</p>
+                            <span class="text-[9px] text-slate-400 block max-w-[90px] truncate">${ship.destination.split(' ')[0]}</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function adjustSimulatedSensor(type, val) {
+            if (type === 'temp') {
+                simulatedTemp += val;
+                writeLog(`[แมนวล] บิดเซนเซอร์จำลองอุณหภูมิภายนอก ${val > 0 ? '+' : ''}${val.toFixed(1)}°C`);
+            } else if (type === 'humidity') {
+                simulatedHumidity += val;
+                writeLog(`[แมนวล] บิดจำลองความชื้นรอบตัวอุปกรณ์ ${val > 0 ? '+' : ''}${val}% RH`);
+            }
+            updateRealtimeUI();
+        }
+
+        function writeLog(text) {
+            const logsDiv = document.getElementById('system-logs');
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            logsDiv.innerHTML += `<div>[${timeStr}] ${text}</div>`;
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function startIoTEngine() {
+            if (apiIntervalId) clearInterval(apiIntervalId);
+
+            const interval = parseInt(document.getElementById('update-interval').value) || 5000;
+
+            apiIntervalId = setInterval(() => {
+                const targetShipment = shipments[activeShipmentIndex];
+                if (!targetShipment) return;
+
+                // --- 1. Environmental Simulation Drift ---
+                let tempDrift = (Math.random() - 0.47) * 0.4; // slight ambient heating leakage
+                let humDrift = (Math.random() - 0.5) * 2;
+
+                // --- 2. Automated PID-like Temperature Regulation Logic ---
+                if (simulatedTemp > targetShipment.maxTemp) {
+                    coolerActive = true;
+                    heaterActive = false;
+                    tempDrift -= 0.8; // intense cooling
+                } else if (simulatedTemp < targetShipment.minTemp) {
+                    coolerActive = false;
+                    heaterActive = true;
+                    tempDrift += 0.8; // heating loop active
+                } else {
+                    // Fine-tuning cooling to stay in the middle of target range
+                    const midTemp = (targetShipment.minTemp + targetShipment.maxTemp) / 2;
+                    if (simulatedTemp > midTemp + 0.3) {
+                        coolerActive = true;
+                        heaterActive = false;
+                        tempDrift -= 0.2;
+                    } else if (simulatedTemp < midTemp - 0.3) {
+                        coolerActive = false;
+                        heaterActive = true;
+                        tempDrift += 0.2;
+                    } else {
+                        coolerActive = false;
+                        heaterActive = false;
+                    }
+                }
+
+                // Dehumidifier logic
+                const targetMaxHum = targetShipment.maxHum || 60;
+                if (simulatedHumidity > targetMaxHum) {
+                    dehumidifierActive = true;
+                    humDrift -= 2.2;
+                } else {
+                    dehumidifierActive = false;
+                }
+
+                // Apply values and constrain
+                simulatedTemp += tempDrift;
+                simulatedHumidity += humDrift;
+                
+                if (simulatedTemp < -25) simulatedTemp = -25;
+                if (simulatedTemp > 45) simulatedTemp = 45;
+                if (simulatedHumidity < 10) simulatedHumidity = 10;
+                if (simulatedHumidity > 95) simulatedHumidity = 95;
+
+                // Save status
+                targetShipment.currentTemp = simulatedTemp;
+                targetShipment.currentHumidity = simulatedHumidity;
+
+                // Record historical database
+                simulatedHistory.push({
+                    time: new Date().toLocaleTimeString(),
+                    temp: simulatedTemp.toFixed(1),
+                    hum: simulatedHumidity.toFixed(0),
+                    state: (simulatedTemp > targetShipment.maxTemp || simulatedTemp < targetShipment.minTemp) ? '⚠️ วิกฤต' : '✅ ปกติ'
+                });
+                if (simulatedHistory.length > 30) simulatedHistory.shift();
+
+                // --- 3. Gateway Diagnostics Drift ---
+                batteryLevel = Math.max(10, batteryLevel - (coolerActive ? 0.2 : 0.05));
+                document.getElementById('gateway-battery').innerText = `แบตเตอรี่เกตเวย์: ${batteryLevel.toFixed(0)}%`;
+
+                // --- 4. Simulated GPS Movement along Real Road Network ---
+                moveTruckAlongPath(targetShipment.coordsPath);
+
+                // --- 5. Update UI View ---
+                updateRealtimeUI();
+                updateChartData(simulatedTemp);
+
+            }, interval);
+        }
+
+        // Move Leaflet marker between path waypoints
+        function moveTruckAlongPath(coords) {
+            if (!coords || coords.length < 2) return;
+
+            const startPoint = coords[currentWaypointIndex];
+            const endPoint = coords[(currentWaypointIndex + 1) % coords.length];
+
+            stepProgress += 0.15;
+            if (stepProgress >= 1.0) {
+                stepProgress = 0.0;
+                currentWaypointIndex = (currentWaypointIndex + 1) % coords.length;
+            }
+
+            // Interpolate position
+            const lat = startPoint[0] + (endPoint[0] - startPoint[0]) * stepProgress;
+            const lng = startPoint[1] + (endPoint[1] - startPoint[1]) * stepProgress;
+
+            if (truckMarker) {
+                truckMarker.setLatLng([lat, lng]);
+            }
+
+            document.getElementById('current-coords').innerText = `${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`;
+        }
+
+        // UI refresh for climate nodes and status panels
+        function updateRealtimeUI() {
+            const activeShip = shipments[activeShipmentIndex];
+            if (!activeShip) return;
+
+            document.getElementById('live-temp').innerText = simulatedTemp.toFixed(1);
+            document.getElementById('live-humidity').innerText = simulatedHumidity.toFixed(0);
+
+            const tempAlert = document.getElementById('temp-alert-status');
+            const tempIconBg = document.getElementById('temp-icon-bg');
+            
+            if (tempAlert && tempIconBg) {
+                if (simulatedTemp > activeShip.maxTemp) {
+                    tempAlert.className = "mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold animate-pulse";
+                    tempAlert.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i><span>เตือน: อุณหภูมิวิกฤต สูงกว่าช่วงคุม ${activeShip.maxTemp.toFixed(1)}°C!</span>`;
+                    tempIconBg.className = "p-2 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400";
+                } else if (simulatedTemp < activeShip.minTemp) {
+                    tempAlert.className = "mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold animate-pulse";
+                    tempAlert.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i><span>เตือน: อุณหภูมิต่ำกว่าช่วงรักษาเย็น ${activeShip.minTemp.toFixed(1)}°C!</span>`;
+                    tempIconBg.className = "p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400";
+                } else {
+                    tempAlert.className = "mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium";
+                    tempAlert.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><span>อุณหภูมิปกติ ปลอดภัยสำหรับการจัดส่ง</span>`;
+                    tempIconBg.className = "p-2 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-400";
+                }
+            }
+
+            const humAlert = document.getElementById('humidity-alert-status');
+            if (humAlert) {
+                if (simulatedHumidity > activeShip.maxHum) {
+                    humAlert.className = "mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold animate-pulse";
+                    humAlert.innerHTML = `<i data-lucide="droplet-off" class="w-4 h-4 text-amber-400"></i><span>ระวัง: ความชื้นสะสมสูงเกินเกณฑ์สูงสุด (${activeShip.maxHum}% RH)</span>`;
+                } else {
+                    humAlert.className = "mt-3 p-2.5 rounded-xl flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium";
+                    humAlert.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i><span>ระดับความชื้นสัมพัทธ์ในตู้ยาสม่ำเสมอปกติ</span>`;
+                }
+            }
+
+            // Update Control Hardware components
+            updateUnitUI('cooler-unit-card', 'cooler-icon-container', 'cooler-status-text', 'cooler-icon', coolerActive, 'blue');
+            updateUnitUI('heater-unit-card', 'heater-icon-container', 'heater-status-text', 'heater-icon', heaterActive, 'orange');
+            updateUnitUI('dehumidifier-unit-card', 'dehumidifier-icon-container', 'dehumidifier-status-text', 'dehumidifier-icon', dehumidifierActive, 'sky');
+
+            renderShipmentQueue();
+            lucide.createIcons();
+        }
+
+        function updateUnitUI(cardId, iconContainerId, textId, iconId, isActive, color) {
+            const card = document.getElementById(cardId);
+            const iconCont = document.getElementById(iconContainerId);
+            const text = document.getElementById(textId);
+            const icon = document.getElementById(iconId);
+
+            if (!card || !iconCont || !text) return;
+
+            if (isActive) {
+                card.className = `border border-${color}-500/40 rounded-xl p-4 flex items-center gap-3 bg-${color}-950/40 shadow-lg`;
+                iconCont.className = `p-2 rounded-lg bg-${color}-500/20 text-${color}-400 border border-${color}-500/30`;
+                text.innerHTML = `<span class="text-${color}-400 font-bold flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-${color}-500 animate-ping"></span> คืนสภาพสภาวะ (ACTIVE)</span>`;
+                
+                if (cardId === 'cooler-unit-card' && icon) {
+                    icon.classList.add('spin-slow');
+                }
+            } else {
+                card.className = "border border-slate-800 rounded-xl p-4 flex items-center gap-3 bg-slate-900";
+                iconCont.className = "p-2 rounded-lg bg-slate-800 text-slate-500 border border-slate-700";
+                text.className = "text-xs font-bold text-slate-500";
+                text.innerText = "ระบบปิด (Standby)";
+                
+                if (cardId === 'cooler-unit-card' && icon) {
+                    icon.classList.remove('spin-slow');
+                }
+            }
+        }
+
+        function updateChartData(newTemp) {
+            if (!chart) return;
+            chart.data.datasets[0].data.shift();
+            chart.data.datasets[0].data.push(parseFloat(newTemp.toFixed(1)));
+            chart.update();
+        }
+
+        // Export Compliance History logs as standard Audit report
+        function exportCSV() {
+            const activeShip = shipments[activeShipmentIndex];
+            if (simulatedHistory.length === 0) {
+                alert("ไม่พบบันทึกข้อมูลในขณะนี้ กรุณารอข้อมูลมอนิเตอร์เซนเซอร์สักครู่ครับ");
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += `รายงานการขนส่งเวชภัณฑ์ทางการแพทย์ - PharmaTrack GDP Compliance\r\n`;
+            csvContent += `รหัสจัดส่ง,${activeShip.id}\r\n`;
+            csvContent += `ชื่อสามัญเวชภัณฑ์,${activeShip.name}\r\n`;
+            csvContent += `โรงพยาบาลเป้าหมาย,${activeShip.destination}\r\n`;
+            csvContent += `ช่วงควบคุมอุณหภูมิเซฟตี้,${activeShip.minTemp} - ${activeShip.maxTemp} °C\r\n\r\n`;
+            csvContent += "เวลาบันทึก,ค่าอุณหภูมิ (C),ความชื้น (RH),สถานะวิเคราะห์\r\n";
+
+            simulatedHistory.forEach(row => {
+                csvContent += `${row.time},${row.temp},${row.hum},${row.state}\r\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `PharmaReport_${activeShip.id}_Compliance.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            writeLog(`[รายงาน] ส่งออกแฟ้มตรวจสอบมาตรฐาน GDP (${activeShip.id}.csv) ไปยังเครื่องโลคอลคลังยาสำเร็จ`);
+        }
+
+        // Simulate Line Alert Dispatch for Field Operators
+        function simulateLineAlert() {
+            const activeShip = shipments[activeShipmentIndex];
+            const token = document.getElementById('line-token').value;
+            
+            writeLog(`[LINE Notify] 💬 กำลังส่งสัญญาณแพ็กเกจแจ้งเตือนผ่าน API Token: ${token}`);
+            
+            setTimeout(() => {
+                writeLog(`[LINE บรอดแคสต์] 🔔 ส่งแจ้งเตือนแล้ว: "ตรวจพบอุณหภูมิตู้คอนเทนเนอร์ ${activeShip.id} (${activeShip.name}) อยู่ที่ ${simulatedTemp.toFixed(1)}°C - สั่งคุมชดเชยเรียบร้อยแล้ว"`);
+            }, 800);
+        }
+    </script>
+</body>
+</html>
